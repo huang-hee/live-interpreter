@@ -1,0 +1,549 @@
+/* 设置窗口：左侧分类，右侧内容，改动即时生效 */
+
+.settings-app {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 10px;
+  background: var(--rail);
+  border-right: 1px solid var(--line);
+}
+
+.settings-nav button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  color: var(--muted);
+  text-align: left;
+}
+
+.settings-nav button:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.settings-nav button[aria-current='page'] {
+  background: var(--pressed);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* 没填 Key 时「账号」旁边亮一个琥珀点 */
+.settings-nav button[data-attention='true']::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--attention);
+}
+
+.settings-main {
+  overflow-y: auto;
+  padding: 24px 32px 40px;
+}
+
+.settings-banner {
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.section-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.section-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.section-body {
+  display: grid;
+  gap: 14px;
+  max-width: 640px;
+  margin-top: 20px;
+}
+
+.section-body h3 {
+  margin: 10px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.section-body h3:first-child,
+.section-body .notice + h3 {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.section-text {
+  margin: 0;
+  color: var(--muted);
+}
+
+.notice {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---------- 表单 ---------- */
+
+.field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  align-content: start;
+}
+
+.field > label,
+.field-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 16px;
+}
+
+.field-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.field-hint[data-kind='warn'] {
+  color: var(--attention);
+}
+
+.field-hint a {
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+.field select,
+.field > input:not([type='range']),
+.field textarea,
+.key-input {
+  width: 100%;
+  border: 1px solid var(--control-line);
+  border-radius: 6px;
+  background: var(--canvas);
+}
+
+.field select,
+.field > input:not([type='range']) {
+  height: 32px;
+  padding: 0 8px;
+}
+
+.field textarea {
+  padding: 6px 8px;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.field input[type='range'] {
+  accent-color: var(--onair);
+}
+
+.field select:focus-visible,
+.field > input:focus-visible,
+.field textarea:focus-visible,
+.key-input:focus-within {
+  outline: none;
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ink) 30%, transparent);
+}
+
+.key-input {
+  display: flex;
+  align-items: center;
+  height: 32px;
+}
+
+.key-input input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+}
+
+.key-input input:focus-visible {
+  outline: none;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--muted);
+}
+
+.icon-button:hover {
+  color: var(--ink);
+}
+
+.segmented {
+  display: inline-flex;
+  justify-self: start;
+  height: 30px;
+  border: 1px solid var(--control-line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.segmented label {
+  position: relative;
+  display: flex;
+  cursor: pointer;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented span {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  color: var(--muted);
+}
+
+.segmented label + label span {
+  border-left: 1px solid var(--control-line);
+}
+
+.segmented input:checked + span {
+  background: var(--ink);
+  color: var(--canvas);
+  font-weight: 600;
+}
+
+.segmented input:focus-visible + span {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+/* 原生复选框藏在这里面，定位要以它为参照，不然点击时浏览器会滚动整页去找它 */
+.switch {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.switch[data-disabled='true'] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch-track {
+  flex: none;
+  width: 28px;
+  height: 16px;
+  margin-top: 2px;
+  border-radius: 8px;
+  background: var(--control-line);
+  position: relative;
+  transition: background 120ms;
+}
+
+.switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--canvas);
+  transition: transform 120ms;
+}
+
+.switch input:checked + .switch-track {
+  background: var(--ink);
+}
+
+.switch input:checked + .switch-track::after {
+  transform: translateX(12px);
+}
+
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.switch-text {
+  display: grid;
+  gap: 2px;
+}
+
+.switch-text small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---------- 按钮和结果 ---------- */
+
+.button-primary,
+.button-secondary,
+.button-danger {
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.button-primary {
+  background: var(--ink);
+  color: var(--canvas);
+}
+
+.button-secondary {
+  border: 1px solid var(--control-line);
+}
+
+.button-secondary:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.button-danger {
+  border: 1px solid var(--onair);
+  color: var(--onair);
+}
+
+.button-danger:hover:not(:disabled) {
+  background: var(--onair);
+  color: var(--canvas);
+}
+
+.button-primary:disabled,
+.button-secondary:disabled,
+.button-danger:disabled {
+  opacity: 0.4;
+}
+
+button.link {
+  margin-left: 8px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.form-result {
+  margin: 0;
+  font-size: 12px;
+  color: var(--attention);
+}
+
+.form-result[data-ok='true'] {
+  color: var(--listen);
+}
+
+.danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 640px;
+  margin-top: 32px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--onair) 35%, transparent);
+  border-radius: 8px;
+}
+
+.danger-zone h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.danger-zone p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---------- 音色 ---------- */
+
+.voice-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--rail);
+}
+
+.voice-status {
+  margin: 0;
+}
+
+.recorder {
+  display: grid;
+  gap: 12px;
+}
+
+.recorder-script {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: var(--canvas);
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.recorder-meter {
+  --level: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.recorder-meter div {
+  height: 100%;
+  width: calc(var(--level) * 100%);
+  background: var(--onair);
+  transition: width 90ms linear;
+}
+
+.recorder[data-ready='true'] .recorder-meter div {
+  background: var(--listen);
+}
+
+.recorder-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recorder-time {
+  margin-right: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 外观：字幕预览和样式控件 ---------- */
+
+.style-preview {
+  display: grid;
+  place-items: end center;
+  height: 150px;
+  padding: 12px;
+  border-radius: 8px;
+  background: repeating-conic-gradient(#8a8f94 0 25%, #b9bdc1 0 50%) 0 0 / 20px 20px;
+}
+
+.style-preview-block {
+  width: 100%;
+  padding: 10px 22px;
+  border-radius: 10px;
+  background: var(--sub-bg);
+  color: var(--sub-color);
+  text-align: center;
+}
+
+.style-preview-block p {
+  margin: 0;
+}
+
+.style-preview-source {
+  font-size: calc(var(--sub-size) * 0.6);
+  opacity: 0.85;
+}
+
+.style-preview-translation {
+  max-height: calc(var(--lines) * 1.4em);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  font-size: var(--sub-size);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.style-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.style-controls .stepper {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  border: 1px solid var(--control-line);
+  border-radius: 6px;
+}
+
+.style-controls .stepper button {
+  width: 28px;
+  height: 28px;
+}
+
+.style-controls .stepper span {
+  min-width: 26px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.style-controls .swatches > span,
+.style-controls .slider,
+.style-controls .picker-slider {
+  color: var(--muted);
+}
+
+.style-controls .picker-hex input {
+  height: 26px;
+  border-color: var(--control-line);
+}
+
+.style-controls .picker-done {
+  height: 28px;
+  border-color: var(--control-line);
+}
+
+.style-controls .slider input {
+  accent-color: var(--ink);
+}

@@ -1,0 +1,95 @@
+/*
+ * 基础样式：设置窗口跟随主题（跟随系统 / 白天 / 黑夜，由主进程的 nativeTheme 决定 prefers-color-scheme）。
+ * 看板和记录是透明面板，用自己的一套颜色，见 panel/panel.css。
+ */
+:root {
+  --canvas: #f8f9f7;
+  --rail: #eceeea;
+  --ink: #16181a;
+  --muted: #626a70;
+  --listen: #0a6c86;
+  --onair: #d23a2a;
+  --attention: #a35f00;
+  --line: rgba(22, 24, 26, 0.12);
+  --control-line: rgba(22, 24, 26, 0.22);
+  --hover: rgba(22, 24, 26, 0.06);
+  --pressed: rgba(22, 24, 26, 0.1);
+  --font:
+    -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Segoe UI Variable', 'Microsoft YaHei UI',
+    'Microsoft YaHei', system-ui, sans-serif;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #1d1f21;
+    --rail: #27292c;
+    --ink: #e9ebec;
+    --muted: #979ea4;
+    --listen: #56bfd6;
+    --onair: #ff6b5b;
+    --attention: #f0b44c;
+    --line: rgba(233, 235, 236, 0.12);
+    --control-line: rgba(233, 235, 236, 0.22);
+    --hover: rgba(233, 235, 236, 0.06);
+    --pressed: rgba(233, 235, 236, 0.12);
+    color-scheme: dark;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* 页面本身不滚动，滚动交给各窗口里的内容区；否则藏起来的原生控件获得焦点时会把整页顶上去 */
+html,
+body {
+  overflow: hidden;
+}
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+a {
+  color: inherit;
+  text-underline-offset: 3px;
+}

@@ -1,0 +1,303 @@
+/*
+ * 字幕看板：工具栏、字幕区、「说」字幕条三行，窗口高度跟着内容走，没有空白。
+ * 工具栏那一行平时透明，鼠标移上来才出现；字幕区铺满宽度，常驻底色。
+ */
+
+.overlay {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  cursor: grab;
+}
+
+.overlay-content {
+  display: grid;
+}
+
+.overlay:active {
+  cursor: grabbing;
+}
+
+/* ---------- 工具栏 ---------- */
+
+.overlay-toolbar {
+  display: grid;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 10px 10px 0 0;
+  background: var(--glass);
+  color: var(--ui);
+  font-size: 12px;
+  cursor: default;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms;
+}
+
+.overlay[data-toolbar='true'] .overlay-toolbar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-height: 26px;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--ui-line);
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.overlay .chip[data-channel]::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--ui-soft);
+}
+
+.overlay .chip[data-channel='listen'] {
+  --channel: var(--listen);
+}
+
+.overlay .chip[data-channel='speak'] {
+  --channel: var(--onair);
+}
+
+.overlay .chip[data-status='live'] {
+  color: var(--ui);
+}
+
+.overlay .chip[data-status='live']::before {
+  background: var(--channel);
+  box-shadow: none;
+}
+
+.overlay .chip[data-channel='speak'][data-status='live']:not([data-onair='true'])::before {
+  background: var(--ui-soft);
+}
+
+/* 防回授生效：收听暂停，状态点变成琥珀色 */
+.overlay .chip[data-paused='true']::before {
+  background: var(--attention);
+}
+
+.overlay .chip[data-paused='true'] small {
+  color: var(--attention);
+}
+
+.overlay .chip[data-onair='true'],
+.overlay .chip-hold[data-holding='true'] {
+  background: var(--onair);
+  color: #fff;
+}
+
+.overlay .chip[data-onair='true']::before {
+  background: #fff;
+}
+
+.overlay .chip[data-status='connecting']::before,
+.overlay .chip[data-status='reconnecting']::before {
+  background: var(--channel);
+  animation: blink 900ms steps(2) infinite;
+}
+
+.overlay .chip[data-status='error']::before {
+  background: var(--attention);
+  box-shadow: none;
+}
+
+.overlay .chip-hold {
+  border: 1px dashed var(--onair);
+  color: var(--onair);
+  touch-action: none;
+}
+
+.lang {
+  color: var(--ui-soft);
+  padding-left: 2px;
+}
+
+.lang-link {
+  color: var(--ui-soft);
+}
+
+.lang-select {
+  appearance: none;
+  height: 26px;
+  padding: 0 20px 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--ui-fill)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%23c8ccd0' stroke-width='1.3'/%3E%3C/svg%3E")
+    no-repeat right 7px center;
+  color: var(--ui);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  field-sizing: content;
+}
+
+.lang-select:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* ---------- 字幕区：铺满宽高，字幕贴底居中 ---------- */
+
+.caption-area {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 28px 14px;
+  border-radius: 10px;
+  background: var(--sub-bg);
+  overflow: hidden;
+}
+
+.overlay[data-toolbar='true'] .caption-area {
+  border-radius: 0 0 10px 10px;
+}
+
+.overlay:has(.speak-strip) .caption-area {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* 上播灯：「说」正在把译音送出去时常亮 */
+.onair-dot {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--onair);
+  box-shadow: 0 0 0 3px rgba(255, 107, 91, 0.25);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.caption-area[data-onair='true'] .onair-dot {
+  opacity: 1;
+}
+
+/*
+ * 滚动字幕：高度固定为「行数 × 行高」，文字贴底对齐，
+ * 超出的旧行从上方裁掉，新字从下面补上；没字时也占着位置，窗口不会跳。
+ */
+.caption {
+  --line-height: 1.4;
+  width: 100%;
+  height: calc(var(--lines) * var(--line-height) * 1em);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  line-height: var(--line-height);
+  color: var(--sub-color);
+  text-align: center;
+}
+
+.caption-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 字幕铺满看板宽度，想每行短一些就把看板拖窄 */
+.caption[data-kind='translation'] {
+  font-size: var(--sub-size);
+  font-weight: 600;
+}
+
+.caption[data-kind='source'] {
+  font-size: calc(var(--sub-size) * 0.6);
+  opacity: 0.8;
+}
+
+.caption .stash {
+  opacity: 0.55;
+}
+
+/* 底色太淡时字要自己带阴影，否则白字碰上亮画面就看不清 */
+.overlay[data-thin-bg='true'] .caption,
+.overlay[data-thin-bg='true'] .caption-hint {
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.85),
+    0 0 1px rgba(0, 0, 0, 0.9);
+}
+
+.caption-hint {
+  margin: 0;
+  color: var(--sub-color);
+  opacity: 0.75;
+  font-size: 13px;
+  text-align: center;
+}
+
+.caption-link {
+  margin-left: 8px;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---------- 「说」字幕条：默认不显示，在工具栏上打开 ---------- */
+
+.speak-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 28px 10px 14px;
+  border-top: 1px solid var(--ui-line);
+  border-radius: 0 0 10px 10px;
+  background: var(--sub-bg);
+}
+
+.speak-tag {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--onair);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.speak-captions {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.speak-captions .caption {
+  text-align: left;
+}
+
+.speak-captions .caption[data-kind='speak-source'] {
+  font-size: max(12px, calc(var(--sub-size) * 0.45));
+  opacity: 0.75;
+}
+
+.speak-captions .caption[data-kind='speak-translation'] {
+  font-size: max(14px, calc(var(--sub-size) * 0.55));
+  font-weight: 600;
+}
+
+.speak-captions .caption-hint {
+  text-align: left;
+}

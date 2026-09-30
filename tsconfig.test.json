@@ -1,0 +1,14 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": [
+    "tests/**/*.ts",
+    "src/main/**/*",
+    "src/shared/**/*",
+    "src/preload/index.d.ts"
+  ],
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ESNext", "DOM"],
+    "types": ["electron-vite/node"]
+  }
+}

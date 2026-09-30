@@ -1,0 +1,147 @@
+/*
+ * 翻译记录：和看板同一套外观，底色、字色和透明度都跟看板的设置走。
+ * 左右两栏，左边听、右边说。
+ */
+
+.records {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-radius: 10px;
+  background: var(--sub-bg);
+  color: var(--sub-color);
+  box-shadow:
+    inset 0 0 0 1px var(--ui-line),
+    inset 0 0 0 2px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.records-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 8px 8px 16px;
+  border-bottom: 1px solid var(--ui-line);
+  cursor: grab;
+}
+
+.records-head:active {
+  cursor: grabbing;
+}
+
+.records-head h1 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sub-color);
+}
+
+.records-spacer {
+  flex: 1;
+}
+
+.records-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 0;
+}
+
+.record-column {
+  --channel: var(--listen);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+}
+
+.record-column[data-direction='speak'] {
+  --channel: var(--onair);
+}
+
+.record-column + .record-column {
+  border-left: 1px solid var(--ui-line);
+}
+
+.record-column h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 16px 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sub-color);
+}
+
+.record-column h2 small {
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.65;
+}
+
+.record-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
+
+.record-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  align-self: center;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  opacity: 0.6;
+}
+
+.record-column[data-status='live'] .record-dot {
+  background: var(--channel);
+  box-shadow: none;
+  opacity: 1;
+}
+
+.record-scroll {
+  overflow-y: auto;
+  padding: 4px 16px 20px;
+  overscroll-behavior: contain;
+  user-select: text;
+}
+
+.record {
+  padding: 8px 0 8px 10px;
+  margin-left: -12px;
+  border-left: 2px solid transparent;
+}
+
+.record[data-live='true'] {
+  border-left-color: var(--channel);
+}
+
+.record + .record {
+  border-top: 1px dashed var(--ui-line);
+}
+
+.record p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.record-source {
+  font-size: 13px;
+  line-height: 1.55;
+  opacity: 0.75;
+}
+
+.record-translation {
+  margin-top: 2px;
+  font-size: 16px;
+  line-height: 1.55;
+  font-weight: 600;
+}
+
+.record-empty {
+  margin: 8px 0 0;
+  font-size: 13px;
+  opacity: 0.6;
+}

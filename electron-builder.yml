@@ -1,0 +1,41 @@
+appId: com.liveinterpreter.app
+productName: 同传
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!tests/**'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+win:
+  executableName: live-interpreter
+nsis:
+  artifactName: live-interpreter-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+mac:
+  # 本机自用：ad-hoc 签名。要分发给别人时换成开发者证书并开启 hardenedRuntime 和公证
+  identity: '-'
+  hardenedRuntime: false
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: 采集你说的话，翻译成对方的语言。
+    # macOS 14.2+ 录制系统声音（CoreAudio Tap）必须有这一项，否则拿到的音轨没有声音
+    NSAudioCaptureUsageDescription: 采集电脑里播放的声音，翻译成字幕。
+  notarize: false
+dmg:
+  artifactName: live-interpreter-${version}.${ext}
+linux:
+  target:
+    - AppImage
+  maintainer: live-interpreter
+  category: Utility
+appImage:
+  artifactName: live-interpreter-${version}.${ext}
+npmRebuild: false

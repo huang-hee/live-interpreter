@@ -1,0 +1,291 @@
+/*
+ * 看板和记录共用：无边框透明窗口，控件固定一套深色玻璃，不跟系统主题。
+ * 它们盖在视频和会议窗口上，亮画面暗画面都要看得清。
+ */
+
+html.panel-window,
+html.panel-window body {
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+}
+
+.panel {
+  --glass: rgba(18, 20, 22, 0.88);
+  --ui: #f2f4f5;
+  --ui-soft: rgba(242, 244, 245, 0.6);
+  --ui-fill: rgba(255, 255, 255, 0.06);
+  --ui-line: rgba(255, 255, 255, 0.14);
+  --listen: #56bfd6;
+  --onair: #ff6b5b;
+  --attention: #f0b44c;
+  position: fixed;
+  inset: 0;
+  font-family: var(--font);
+}
+
+.panel .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 5px;
+  background: var(--ui-fill);
+  color: var(--ui-soft);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.panel .chip:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--ui);
+}
+
+.panel .chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.panel .chip[aria-pressed='true'] {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.panel .chip small {
+  color: var(--ui-soft);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.panel .chip.close {
+  padding: 0 9px;
+  font-size: 15px;
+}
+
+.panel .stepper {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  border-radius: 5px;
+  background: var(--ui-fill);
+  color: var(--ui);
+}
+
+.panel .stepper button {
+  width: 24px;
+  height: 26px;
+}
+
+.panel .stepper button:disabled {
+  opacity: 0.35;
+}
+
+.panel .stepper span {
+  min-width: 24px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+}
+
+.swatches > span {
+  margin-right: 2px;
+}
+
+.swatch {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(127, 127, 127, 0.45);
+  cursor: pointer;
+}
+
+.swatch[aria-checked='true'],
+.swatch[data-checked='true'],
+.swatch[aria-expanded='true'] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.swatch-custom {
+  background: conic-gradient(#ff6b6b, #ffd43b, #69db7c, #4dabf7, #b197fc, #ff6b6b);
+}
+
+/*
+ * 页面内取色器。不用系统取色面板：看板在屏保层级置顶，系统面板会被它压住。
+ * 父容器是换行的 flex，取色器占满一整行。
+ */
+.color-picker {
+  flex: 1 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.picker-hex {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.picker-preview {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(127, 127, 127, 0.45);
+}
+
+.picker-hex input {
+  box-sizing: content-box;
+  width: 8ch;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid rgba(127, 127, 127, 0.45);
+  border-radius: 5px;
+  background: transparent;
+  font-variant-numeric: tabular-nums;
+}
+
+.picker-hex input[aria-invalid='true'] {
+  border-color: var(--attention);
+}
+
+.picker-slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 120px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* 轨道本身就是色带，拖到哪就是什么颜色 */
+.picker-slider input {
+  appearance: none;
+  flex: 1;
+  min-width: 60px;
+  height: 8px;
+  margin: 0;
+  border-radius: 4px;
+  background: var(--track);
+  cursor: pointer;
+}
+
+.picker-slider input::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 0 0 1.5px rgba(0, 0, 0, 0.55),
+    0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.picker-done {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid rgba(127, 127, 127, 0.45);
+  border-radius: 5px;
+}
+
+/* 两个滑块放一组，窄窗口时整组换到下一行 */
+.sliders {
+  display: flex;
+  flex: 1 1 260px;
+  gap: 12px;
+  min-width: 0;
+}
+
+.slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.slider input {
+  flex: 1;
+  min-width: 60px;
+}
+
+.panel .swatches > span,
+.panel .slider,
+.panel .picker-slider {
+  color: var(--ui-soft);
+}
+
+.panel .swatch[aria-checked='true'],
+.panel .swatch[data-checked='true'],
+.panel .swatch[aria-expanded='true'] {
+  outline-color: var(--ui);
+}
+
+.panel .picker-hex input,
+.panel .picker-done {
+  border-color: transparent;
+  background: var(--ui-fill);
+  color: var(--ui);
+}
+
+.panel .picker-done:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.panel .slider input {
+  accent-color: var(--listen);
+}
+
+.panel .stash {
+  color: inherit;
+  opacity: 0.55;
+}
+
+.panel-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  border-radius: 0 0 10px 0;
+}
+
+.panel-resize-visible,
+[data-toolbar='true'] > .panel-resize {
+  background: linear-gradient(
+    135deg,
+    transparent 0 55%,
+    rgba(255, 255, 255, 0.5) 55% 62%,
+    transparent 62% 72%,
+    rgba(255, 255, 255, 0.5) 72% 79%,
+    transparent 79%
+  );
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
