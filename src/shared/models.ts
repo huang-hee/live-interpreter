@@ -28,6 +28,8 @@ export interface ModelFeatures {
   vadTuning: boolean
   /** 按说话人断句（speaker_detection） */
   speakers: boolean
+  /** 会推待确认、之后可能被改写的尾巴（stash） */
+  pendingText: boolean
 }
 
 /**
@@ -42,7 +44,8 @@ const FEATURES: Record<ModelProtocol, ModelFeatures> = {
     fixedVoice: true,
     manualTurn: true,
     vadTuning: true,
-    speakers: false
+    speakers: false,
+    pendingText: true
   },
   'qwen3.8': {
     glossary: true,
@@ -51,7 +54,8 @@ const FEATURES: Record<ModelProtocol, ModelFeatures> = {
     fixedVoice: false,
     manualTurn: true,
     vadTuning: true,
-    speakers: true
+    speakers: true,
+    pendingText: false
   }
 }
 
@@ -69,7 +73,7 @@ export const MODEL_PRESETS: ModelPreset[] = [
     id: 'qwen3.8-livetranslate-flash-realtime',
     protocol: 'qwen3.8',
     name: 'Qwen3.8 同传',
-    note: '百炼同传首推，出字快。译文只往后追加，出现了就不改；可以按说话人断句。不支持固定音色'
+    note: '百炼同传首推。译文只往后追加，出现了就不改；可以按说话人断句。不支持固定音色'
   },
   {
     id: 'qwen3.5-livetranslate-flash-realtime',

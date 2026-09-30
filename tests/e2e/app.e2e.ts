@@ -291,9 +291,10 @@ console.log('mock on', mock.port)
     `${listenConn.url} / ${speakConn.url}`
   )
   check(
-    '模型：听按 3.8 协议配置（按说话人断句，不发 3.5 的字段）',
-    listenConn.config?.output_modalities?.join() === 'text,audio' &&
-      listenConn.config?.audio?.input?.turn_detection?.type === 'speaker_detection' &&
+    '模型：听按 3.8 协议配置（默认普通断句，不发 3.5 的字段）',
+    JSON.stringify(listenConn.config?.audio?.input?.turn_detection) ===
+      JSON.stringify({ type: 'server_vad', threshold: 0.2, silence_duration_ms: 1000 }) &&
+      listenConn.config?.output_modalities?.join() === 'text,audio' &&
       listenConn.config?.modalities === undefined &&
       listenConn.config?.translation?.corpus?.phrases?.['staging'] === '预发',
     JSON.stringify(listenConn.config)
@@ -671,10 +672,17 @@ console.log('mock on', mock.port)
   await overlay.mouse.down()
   await overlay.waitForTimeout(2500)
   await overlay.mouse.up()
+  const releasedBytes = holdConn.audioBytes
   check(
-    '按住说话：按住期间上传、松开提交',
-    await waitFor(async () => holdConn.audioBytes > 0 && holdConn.commits === 1),
-    `bytes=${holdConn.audioBytes} commits=${holdConn.commits}`
+    '按住说话：按住期间上传，松开后再送一小段尾巴才提交',
+    await waitFor(
+      async () =>
+        releasedBytes > 0 &&
+        holdConn.commits === 1 &&
+        // 尾巴 0.4 秒 = 4 块，留一块余量
+        holdConn.audioBytes - releasedBytes >= 3200 * 3
+    ),
+    `松开时 ${releasedBytes} 字节，提交时 ${holdConn.audioBytes} 字节，commits=${holdConn.commits}`
   )
   await overlay.getByRole('button', { name: /停止说话/ }).click()
   await waitFor(async () => (await statusOf(overlay, 'speak')) === 'idle')
@@ -776,7 +784,7 @@ console.log('mock on', mock.port)
   const settings = await pageOf(app, 'settings')
   await settings.getByRole('button', { name: '翻译' }).click()
   const before = mock.stats.connections.length
-  await settings.getByLabel('模型').first().selectOption({ label: 'Qwen3.5 同传' })
+  await settings.getByLabel('模型', { exact: true }).first().selectOption({ label: 'Qwen3.5 同传' })
   const switched = await waitFor(
     async () =>
       mock.stats.connections.length > before &&
@@ -811,7 +819,7 @@ console.log('mock on', mock.port)
   )
 
   // 说换成 3.8：按住说话能用（按 3.8 的写法关掉服务端断句），固定音色不支持
-  await settings.getByLabel('模型').nth(1).selectOption({ label: 'Qwen3.8 同传' })
+  await settings.getByLabel('模型', { exact: true }).nth(1).selectOption({ label: 'Qwen3.8 同传' })
   await settings.getByText('按住说话', { exact: true }).click()
   await showToolbar(overlay)
   await overlay.getByRole('button', { name: /^说话/ }).click()

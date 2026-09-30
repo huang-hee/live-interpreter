@@ -14,6 +14,8 @@ import { PcmPlayer } from '../audio/player'
 const PLAYBACK_TAIL_S = 0.4
 /** 按住不到这么久多半是误触，提示一下 */
 const MIN_HOLD_MS = 300
+/** 松开后再送这么久才提交：人往往最后一个字还没说完就松手，采集也有不满一块的尾巴 */
+const RELEASE_TAIL_MS = 400
 
 function captureSourceOf(direction: Direction, settings: PublicSettings): CaptureSource {
   if (direction === 'speak') {
@@ -61,6 +63,8 @@ export class Engine {
   private holding = false
   private holdStartedAt = 0
   private sentDuringHold = false
+  /** 松开后还在送尾巴，到点提交 */
+  private releaseTimer: number | undefined
   private listenPaused = false
 
   constructor() {
@@ -180,7 +184,7 @@ export class Engine {
   private async stop(direction: Direction): Promise<void> {
     this.captures[direction].stop()
     if (direction === 'listen') this.setListenPaused(false)
-    if (direction === 'speak') this.setHolding(false)
+    if (direction === 'speak') this.stopHolding()
     await window.api.stopChannel(direction)
   }
 
@@ -198,7 +202,7 @@ export class Engine {
         // 通道被主进程停掉（睡眠、清除账号、重连失败）时，采集也要跟着停
         if (!running(event.status)) {
           this.captures[event.direction].stop()
-          if (event.direction === 'speak') this.setHolding(false)
+          if (event.direction === 'speak') this.stopHolding()
           if (event.direction === 'listen') this.setListenPaused(false)
         }
       }
@@ -207,18 +211,18 @@ export class Engine {
 
   private handleChunk(direction: Direction, chunk: CaptureChunk): void {
     if (!this.shouldSend(direction)) return
-    if (direction === 'speak' && this.holding) this.sentDuringHold = true
+    if (direction === 'speak' && this.holdingOrReleasing()) this.sentDuringHold = true
     window.api.sendAudio(direction, chunk.pcm)
   }
 
   private shouldSend(direction: Direction): boolean {
     const settings = this.settings
     if (!settings) return false
-    if (direction === 'speak') return settings.speak.mode === 'auto' || this.holding
+    if (direction === 'speak') return settings.speak.mode === 'auto' || this.holdingOrReleasing()
     // 自己的译音在外放时，系统声音会把它录回来，这段时间先不送收听通道
     const paused =
       settings.pauseListenWhileSpeaking &&
-      (this.holding ||
+      (this.holdingOrReleasing() ||
         this.players.speak.isPlaying(PLAYBACK_TAIL_S) ||
         this.players.monitor.isPlaying(PLAYBACK_TAIL_S))
     this.setListenPaused(paused)
@@ -228,6 +232,8 @@ export class Engine {
   private beginHold(): void {
     const settings = this.settings
     if (this.holding || settings?.speak.mode !== 'hold' || this.statuses.speak !== 'live') return
+    // 上一句的尾巴还没送完又按下了：先把上一句提交
+    this.commitHold()
     this.holdStartedAt = performance.now()
     this.sentDuringHold = false
     this.setHolding(true)
@@ -243,8 +249,27 @@ export class Engine {
       this.reportError('speak', '按住久一点再开口，松开后才会翻译。')
       return
     }
+    this.releaseTimer = window.setTimeout(() => this.commitHold(), RELEASE_TAIL_MS)
+  }
+
+  private holdingOrReleasing(): boolean {
+    return this.holding || this.releaseTimer !== undefined
+  }
+
+  /** 送完尾巴，提交这一句 */
+  private commitHold(): void {
+    if (this.releaseTimer === undefined) return
+    window.clearTimeout(this.releaseTimer)
+    this.releaseTimer = undefined
     // 一块音频都没送就提交，服务端会报缓冲区为空
     if (this.sentDuringHold) window.api.commitAudio('speak')
+  }
+
+  /** 通道停了：按住和没送完的尾巴都作废，不再提交 */
+  private stopHolding(): void {
+    window.clearTimeout(this.releaseTimer)
+    this.releaseTimer = undefined
+    this.setHolding(false)
   }
 
   /** 只在状态翻转时上报，不跟着每 100ms 的音频块刷 */

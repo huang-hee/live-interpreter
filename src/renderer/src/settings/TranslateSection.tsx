@@ -153,7 +153,7 @@ export function TranslateSection({ settings, devices, save }: Props): React.JSX.
           <Switch
             label="按说话人断句"
             checked={listen.speakers}
-            hint="换人说话就另起一句，适合多人对话的视频和会议。打开后背景音过滤由服务端固定。"
+            hint="换人说话就另起一句。服务端要先认出是谁在说，每次换人会晚 2～3 秒出字；打开后背景音过滤由服务端固定。"
             onChange={(speakers) => set({ listen: { speakers } })}
           />
         )}
@@ -196,9 +196,11 @@ export function TranslateSection({ settings, devices, save }: Props): React.JSX.
           label="字幕里显示还没确认的译文"
           checked={listen.showPending}
           hint={
-            listen.showPending
-              ? '出字更快，但还没确认的部分会被改写，字幕会跳动。'
-              : '只显示确认过的译文，出现了就不再变；比打开时晚一点出字。'
+            !listenFeatures.pendingText
+              ? '当前模型推来的都是确认过的字，开不开差别不大。'
+              : listen.showPending
+                ? '出字更快，但还没确认的部分会被改写，字幕会跳动。'
+                : '只显示确认过的译文，出现了就不再变。当前模型确认得慢，连续说话时要晚 1～2 秒出字。'
           }
           onChange={(showPending) => set({ listen: { showPending } })}
         />

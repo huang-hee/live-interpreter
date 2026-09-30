@@ -30,7 +30,8 @@ const DEFAULT_SETTINGS: AppSettings = {
     // 和服务端默认值一致
     silenceMs: 1000,
     vadThreshold: 0.2,
-    speakers: true,
+    // 按说话人断句要先认出是谁在说，每次换人会晚 2~3 秒出字，默认关
+    speakers: false,
     showPending: false
   },
   speak: {
