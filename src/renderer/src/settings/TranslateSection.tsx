@@ -1,5 +1,6 @@
 import { useId } from 'react'
 import { findLanguage, MY_LANGUAGES, PEER_LANGUAGE_GROUPS } from '@shared/languages'
+import { featuresOf, type ModelChoice } from '@shared/models'
 import {
   MUTED_OUTPUT,
   SYSTEM_AUDIO_SOURCE,
@@ -10,10 +11,18 @@ import {
 import { Segmented, SelectField, Switch } from '../components/fields'
 import type { AudioDevices } from '../hooks/useAudioDevices'
 import { deviceOptions, hasVirtualDevice, shortcutLabel } from '../lib/devices'
+import { ModelField } from './ModelField'
 
 const MODES: { value: SpeakMode; label: string }[] = [
   { value: 'auto', label: '停顿自动断句' },
   { value: 'hold', label: '按住说话' }
+]
+
+/** 断句灵敏度（server_vad 的 threshold，-1~1）：越低越容易把背景音当成人声 */
+const THRESHOLDS = [
+  { value: '0', label: '灵敏' },
+  { value: '0.2', label: '标准' },
+  { value: '0.5', label: '抗噪' }
 ]
 
 interface Props {
@@ -30,8 +39,13 @@ async function unlockDeviceNames(refresh: () => void): Promise<void> {
 }
 
 export function TranslateSection({ settings, devices, save }: Props): React.JSX.Element {
-  const ids = { mine: useId(), peer: useId(), silence: useId() }
+  const ids = { mine: useId(), peer: useId(), silence: useId(), listenSilence: useId() }
   const { listen, speak } = settings
+  const listenFeatures = featuresOf(listen.model)
+  // 按说话人断句时灵敏度由服务端固定，只能调停顿
+  const bySpeaker = listenFeatures.speakers && listen.speakers
+  const speakFeatures = featuresOf(speak.model)
+  const holdMode = speak.mode === 'hold' && speakFeatures.manualTurn
   const set = (patch: SettingsPatch): void => void save(patch)
   const myName = findLanguage(settings.myLanguage)?.name ?? settings.myLanguage
   const peer = findLanguage(settings.peerLanguage)
@@ -111,6 +125,7 @@ export function TranslateSection({ settings, devices, save }: Props): React.JSX.
         </div>
 
         <h3>听：对方的话翻成{myName}</h3>
+        <ModelField value={listen.model} onChange={(model) => set({ listen: { model } })} />
         <div className="field-row">
           <SelectField
             label="声音来源"
@@ -134,8 +149,68 @@ export function TranslateSection({ settings, devices, save }: Props): React.JSX.
           hint={canRead ? '除了字幕，也把译文念出来。建议戴耳机。' : `${myName}只支持字幕`}
           onChange={(readAloud) => set({ listen: { readAloud } })}
         />
+        {listenFeatures.speakers && (
+          <Switch
+            label="按说话人断句"
+            checked={listen.speakers}
+            hint="换人说话就另起一句，适合多人对话的视频和会议。打开后背景音过滤由服务端固定。"
+            onChange={(speakers) => set({ listen: { speakers } })}
+          />
+        )}
+        {listenFeatures.vadTuning && (
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor={ids.listenSilence}>
+                停顿 {(listen.silenceMs / 1000).toFixed(1)} 秒算一句
+              </label>
+              <input
+                id={ids.listenSilence}
+                type="range"
+                min={500}
+                max={3000}
+                step={100}
+                value={listen.silenceMs}
+                onChange={(event) => set({ listen: { silenceMs: Number(event.target.value) } })}
+              />
+              <small className="field-hint">
+                调长一点，一句话更完整、译得更准；调短一点，出字更快，但容易把一句话拆开译。
+              </small>
+            </div>
+            {!bySpeaker && (
+              <div className="field">
+                <span className="field-label">背景音过滤</span>
+                <Segmented
+                  label="背景音过滤"
+                  value={String(listen.vadThreshold)}
+                  options={THRESHOLDS}
+                  onChange={(value) => set({ listen: { vadThreshold: Number(value) } })}
+                />
+                <small className="field-hint">
+                  视频里音乐、音效多时选「抗噪」，说话声小时选「灵敏」。
+                </small>
+              </div>
+            )}
+          </div>
+        )}
+        <Switch
+          label="字幕里显示还没确认的译文"
+          checked={listen.showPending}
+          hint={
+            listen.showPending
+              ? '出字更快，但还没确认的部分会被改写，字幕会跳动。'
+              : '只显示确认过的译文，出现了就不再变；比打开时晚一点出字。'
+          }
+          onChange={(showPending) => set({ listen: { showPending } })}
+        />
 
         <h3>说：你的话翻成{peer?.name ?? settings.peerLanguage}</h3>
+        <ModelField
+          value={speak.model}
+          onChange={(model: ModelChoice) =>
+            // 新模型不支持按住说话时，退回停顿自动断句
+            set({ speak: featuresOf(model).manualTurn ? { model } : { model, mode: 'auto' } })
+          }
+        />
         <div className="field-row">
           <SelectField
             label="麦克风"
@@ -167,17 +242,20 @@ export function TranslateSection({ settings, devices, save }: Props): React.JSX.
           <span className="field-label">断句方式</span>
           <Segmented
             label="断句方式"
-            value={speak.mode}
+            value={holdMode ? 'hold' : 'auto'}
             options={MODES}
+            disabled={!speakFeatures.manualTurn}
             onChange={(mode) => set({ speak: { mode } })}
           />
           <small className="field-hint">
-            {speak.mode === 'hold'
-              ? `按住看板上的「按住说话」或空格说话，松开发送；在其他应用里按 ${shortcutLabel(window.api.platform)} 开始，再按一次发送。`
-              : '一直开着麦克风，停顿超过下面的时长就翻译一句。'}
+            {!speakFeatures.manualTurn
+              ? '当前模型只支持停顿自动断句，由服务端判断一句话说完没有。'
+              : holdMode
+                ? `按住看板上的「按住说话」或空格说话，松开发送；在其他应用里按 ${shortcutLabel(window.api.platform)} 开始，再按一次发送。`
+                : '一直开着麦克风，停顿超过下面的时长就翻译一句。'}
           </small>
         </div>
-        {speak.mode === 'auto' && (
+        {!holdMode && speakFeatures.vadTuning && (
           <div className="field">
             <label htmlFor={ids.silence}>停顿 {(speak.silenceMs / 1000).toFixed(1)} 秒算一句</label>
             <input

@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode
+} from 'react'
 import { MY_LANGUAGES, PEER_LANGUAGE_GROUPS } from '@shared/languages'
 import { upsertParagraph, type Paragraph } from '@shared/paragraphs'
 import type {
@@ -16,6 +24,7 @@ import { useSettings } from '../hooks/useSettings'
 import { panelVars } from '../panel/color'
 import { isInteractive, startWindowMove, startWindowResize } from '../panel/drag'
 import '../panel/panel.css'
+import { captionOf, type Caption } from './caption'
 import './overlay.css'
 
 /** 滚动字幕只需要最近几段拼起来的尾巴 */
@@ -40,52 +49,34 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 type TextEvent = Extract<TranslatorEvent, { type: 'source' | 'translation' }>
 
-interface Caption {
-  text: string
-  stash: string
-}
-
-/**
- * 滚动字幕：把最近几段接成一条连续的文字，界面上只露出最后几行。
- * 直播节目的实时字幕就是这样滚动的，新字从下面补上，旧行从上面滚走。
- */
-function captionOf(
-  paragraphs: Paragraph[],
-  field: 'source' | 'translation',
-  language: string
-): Caption {
-  const joiner = NO_SPACE_LANGUAGES.has(language) ? '' : ' '
-  const parts = paragraphs.map((paragraph) => paragraph[field]).filter((part) => part !== null)
-  const text = parts
-    .map((part) => part.text)
-    .filter(Boolean)
-    .join(joiner)
-  return { text, stash: parts.at(-1)?.stash ?? '' }
-}
-
-const EMPTY: Caption = { text: '', stash: '' }
-
 /** 固定高度的字幕行：没字时也占着位置，窗口高度不会跟着文字跳 */
 function CaptionLines({
   caption,
+  language,
   lines,
   kind,
   placeholder
 }: {
   caption: Caption
+  language: string
   lines: number
   kind: 'source' | 'translation' | 'speak-source' | 'speak-translation'
   placeholder?: ReactNode
 }): React.JSX.Element {
-  const empty = !caption.text && !caption.stash
+  const joiner = NO_SPACE_LANGUAGES.has(language) ? '' : ' '
   return (
     <div className="caption" data-kind={kind} style={{ '--lines': lines } as CSSProperties}>
-      {empty ? (
+      {caption.length === 0 ? (
         placeholder && <p className="caption-hint">{placeholder}</p>
       ) : (
         <p className="caption-text">
-          {caption.text}
-          {caption.stash && <span className="stash">{caption.stash}</span>}
+          {caption.map((piece, index) => (
+            <Fragment key={piece.key}>
+              {index > 0 && joiner}
+              {piece.text}
+              {piece.stash && <span className="stash">{piece.stash}</span>}
+            </Fragment>
+          ))}
         </p>
       )}
     </div>
@@ -214,8 +205,11 @@ function OverlayView({ settings, save, state }: ViewProps): React.JSX.Element {
   }
 
   const blocked = hasKey ? undefined : '先在设置里填好 API Key'
-  const heardSource = captionOf(heard, 'source', settings.peerLanguage)
-  const heardTranslation = captionOf(heard, 'translation', settings.myLanguage)
+  const pending = settings.listen.showPending
+  const heardSource = hasKey ? captionOf(heard, 'source', pending) : []
+  const heardTranslation = hasKey ? captionOf(heard, 'translation', pending) : []
+  // 自己说的一句一换：只看最新一句，不往前拼；尾巴照常显示，说完马上能看到
+  const lastSpoken = spoken.slice(-1)
   const languageTitle = '切换后，正在进行的通道会自动重连'
 
   return (
@@ -421,10 +415,16 @@ function OverlayView({ settings, save, state }: ViewProps): React.JSX.Element {
         <div className="caption-area" data-onair={onAir} aria-live="polite">
           <span className="onair-dot" aria-label={onAir ? '正在把你的译音送出去' : undefined} />
           {style.showSource && (
-            <CaptionLines caption={hasKey ? heardSource : EMPTY} lines={1} kind="source" />
+            <CaptionLines
+              caption={heardSource}
+              language={settings.peerLanguage}
+              lines={1}
+              kind="source"
+            />
           )}
           <CaptionLines
-            caption={hasKey ? heardTranslation : EMPTY}
+            caption={heardTranslation}
+            language={settings.myLanguage}
             lines={style.lines}
             kind="translation"
             placeholder={
@@ -451,13 +451,15 @@ function OverlayView({ settings, save, state }: ViewProps): React.JSX.Element {
             <span className="speak-tag">我</span>
             <div className="speak-captions">
               <CaptionLines
-                caption={captionOf(spoken, 'source', settings.myLanguage)}
+                caption={captionOf(lastSpoken, 'source', true)}
+                language={settings.myLanguage}
                 lines={1}
                 kind="speak-source"
                 placeholder={speakLive ? '开口后这里显示你说的话和译文' : '点「说话」开始'}
               />
               <CaptionLines
-                caption={captionOf(spoken, 'translation', settings.peerLanguage)}
+                caption={captionOf(lastSpoken, 'translation', true)}
+                language={settings.peerLanguage}
                 lines={1}
                 kind="speak-translation"
               />

@@ -67,7 +67,7 @@ export async function createVoice(
     settings,
     {
       action: 'create',
-      target_model: settings.model,
+      target_model: settings.speak.model.id,
       preferred_name: PREFERRED_NAME,
       audio: { data: `data:audio/wav;base64,${wav.toString('base64')}` }
     },
@@ -75,7 +75,7 @@ export async function createVoice(
   )
   const id = body.output?.voice
   if (!id) throw new Error('服务没有返回音色 ID')
-  return { id, model: settings.model, createdAt: Date.now() }
+  return { id, model: settings.speak.model.id, createdAt: Date.now() }
 }
 
 export async function deleteVoice(

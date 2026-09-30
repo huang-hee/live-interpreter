@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { featuresOf, findPreset } from '@shared/models'
 import type { PublicSettings, Result, SettingsPatch, VoiceMode } from '@shared/types'
 import { VoiceRecorder } from '../audio/recorder'
 import { Segmented } from '../components/fields'
@@ -100,7 +101,20 @@ export function VoiceSection({ settings, save }: Props): React.JSX.Element {
   }
 
   const voice = speak.clonedVoice
-  const modelMismatch = voice !== null && voice.model !== settings.model
+  const modelMismatch = voice !== null && voice.model !== speak.model.id
+  const features = featuresOf(speak.model)
+  const modelName = findPreset(speak.model.id)?.name ?? speak.model.id
+  const options = MODES.map((mode) => ({
+    ...mode,
+    disabled:
+      (mode.value === 'fixed' && !features.fixedVoice) ||
+      (mode.value === 'live' && !features.liveClone)
+  }))
+  // 模型不支持的模式按会话里实际的退路显示：固定音色 → 边说边复刻 → 预设音色
+  const fallback: VoiceMode = features.liveClone ? 'live' : 'off'
+  const mode = options.find((option) => option.value === speak.voiceMode)?.disabled
+    ? fallback
+    : speak.voiceMode
 
   return (
     <>
@@ -110,15 +124,21 @@ export function VoiceSection({ settings, save }: Props): React.JSX.Element {
       </header>
 
       <div className="section-body">
+        {!features.fixedVoice && (
+          <p className="notice">
+            「说」现在用的 {modelName}{' '}
+            不支持固定音色。要让第一句就是你的声音，到「翻译」里把「说」的模型换成 Qwen3.5。
+          </p>
+        )}
         <Segmented
           label="译音音色"
-          value={speak.voiceMode}
-          options={MODES}
+          value={mode}
+          options={options}
           onChange={(voiceMode) => void save({ speak: { voiceMode } })}
         />
-        <p className="section-text">{MODE_HINT[speak.voiceMode]}</p>
+        <p className="section-text">{MODE_HINT[mode]}</p>
 
-        {speak.voiceMode === 'fixed' && (
+        {mode === 'fixed' && (
           <div className="voice-card">
             {voice ? (
               <p className="voice-status">

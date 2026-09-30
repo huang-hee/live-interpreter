@@ -1,13 +1,21 @@
-// 按百炼 qwen3.5-livetranslate-flash-realtime 文档的事件格式模拟服务端，用于自动化测试
+// 按百炼实时同传文档的事件格式模拟服务端，用于自动化测试。
+// 地址里的模型是 qwen3.8 开头时按 3.8 协议推增量（delta），否则按 3.5 协议推「全文 + 待确认尾巴」
 import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import type { AddressInfo } from 'net'
 import { WebSocketServer } from 'ws'
 
 export const MOCK_KEY = 'sk-mock-test'
 
+interface TurnDetection {
+  type?: string
+  silence_duration_ms?: number
+}
+
 interface SessionConfig {
   modalities?: string[]
-  turn_detection?: { silence_duration_ms?: number } | null
+  output_modalities?: string[]
+  audio?: { input?: { turn_detection?: TurnDetection | null } }
+  turn_detection?: TurnDetection | null
   translation?: { language?: string; corpus?: { phrases?: Record<string, string> } }
   [key: string]: unknown
 }
@@ -49,6 +57,8 @@ export interface MockServer {
     enrollments: EnrollmentRequest[]
     closeNext: boolean
     errorNext: boolean
+    /** 下一块音频到来时报错并断开，模拟参数被拒 */
+    rejectNext: boolean
   }
   close: () => Promise<void>
 }
@@ -122,7 +132,8 @@ export function startMock(port = 0): Promise<MockServer> {
     connections: [],
     enrollments: [],
     closeNext: false,
-    errorNext: false
+    errorNext: false,
+    rejectNext: false
   }
   const server = createServer((req, res) => handleEnrollment(req, res, stats.enrollments))
   const wss = new WebSocketServer({
@@ -158,9 +169,18 @@ export function startMock(port = 0): Promise<MockServer> {
     let silentMs = 0
     let timer: NodeJS.Timeout | undefined
 
+    const delta = new URL(req.url ?? '', 'ws://mock').searchParams
+      .get('model')
+      ?.startsWith('qwen3.8')
     const phrases = (): Record<string, string> => conn.config?.translation?.corpus?.phrases ?? {}
-    const audioOut = (): boolean => (conn.config?.modalities ?? ['text', 'audio']).includes('audio')
+    const audioOut = (): boolean =>
+      (conn.config?.[delta ? 'output_modalities' : 'modalities'] ?? ['text', 'audio']).includes(
+        'audio'
+      )
     const target = (): string => conn.config?.translation?.language ?? 'en'
+    /** 断句配置：3.8 放在 audio.input 下；null 是手动断句 */
+    const turnDetection = (): TurnDetection | null | undefined =>
+      delta ? conn.config?.audio?.input?.turn_detection : conn.config?.turn_detection
 
     const startSegment = (): Segment => {
       conn.segments++
@@ -171,27 +191,49 @@ export function startMock(port = 0): Promise<MockServer> {
         ms: 0,
         created: false
       }
-      if (conn.config?.turn_detection !== null)
+      if (turnDetection() !== null)
         send({ type: 'input_audio_buffer.speech_started', audio_start_ms: 0, item_id: next.asr })
       return next
     }
     const sourceText = (s: Segment): string =>
       `原文${s.n}` + '字'.repeat(Math.min(12, Math.floor(s.ms / 400)))
+    // 文字只往后长，3.8 协议按差量推增量
     const translationText = (s: Segment): string =>
       `[${target()}] segment ${s.n}` +
-      ' word'.repeat(Math.min(6, Math.floor(s.ms / 800))) +
-      (Object.values(phrases()).length ? ` {${Object.values(phrases()).join('|')}}` : '')
+      (Object.values(phrases()).length ? ` {${Object.values(phrases()).join('|')}}` : '') +
+      ' word'.repeat(Math.min(6, Math.floor(s.ms / 800)))
+    const sent = new Map<string, string>()
+    const sendText = (
+      kind: 'source' | 'translation',
+      itemId: string,
+      text: string,
+      stash: string
+    ): void => {
+      const fields = { item_id: itemId, content_index: 0 }
+      const translation = kind === 'translation'
+      const extra = translation ? { response_id: 'resp', output_index: 0 } : {}
+      if (!delta) {
+        const type = translation
+          ? audioOut()
+            ? 'response.audio_transcript.text'
+            : 'response.text.text'
+          : 'conversation.item.input_audio_transcription.text'
+        send({ type, ...fields, ...extra, text, stash })
+        return
+      }
+      const before = sent.get(itemId) ?? ''
+      if (text.length <= before.length) return
+      sent.set(itemId, text)
+      const type = translation
+        ? audioOut()
+          ? 'response.audio_transcript.delta'
+          : 'response.text.delta'
+        : 'conversation.item.input_audio_transcription.delta'
+      send({ type, ...fields, ...extra, delta: text.slice(before.length) })
+    }
     const progress = (): void => {
       if (!seg) return
-      send({
-        type: 'conversation.item.input_audio_transcription.text',
-        item_id: seg.asr,
-        content_index: 0,
-        text: sourceText(seg),
-        stash: '…',
-        language: 'zh',
-        emotion: 'neutral'
-      })
+      sendText('source', seg.asr, sourceText(seg), '…')
       if (seg.ms >= 400) {
         if (!seg.created) {
           seg.created = true
@@ -208,15 +250,7 @@ export function startMock(port = 0): Promise<MockServer> {
             }
           })
         }
-        send({
-          type: audioOut() ? 'response.audio_transcript.text' : 'response.text.text',
-          item_id: seg.tr,
-          response_id: 'resp',
-          output_index: 0,
-          content_index: 0,
-          text: translationText(seg),
-          stash: ' …'
-        })
+        sendText('translation', seg.tr, translationText(seg), ' …')
         if (audioOut())
           send({
             type: 'response.audio.delta',
@@ -232,7 +266,7 @@ export function startMock(port = 0): Promise<MockServer> {
       if (!seg) return
       const s = seg
       seg = null
-      if (conn.config?.turn_detection !== null)
+      if (turnDetection() !== null)
         send({ type: 'input_audio_buffer.speech_stopped', audio_end_ms: 0, item_id: s.asr })
       if (!s.created)
         send({
@@ -319,15 +353,23 @@ export function startMock(port = 0): Promise<MockServer> {
             ws.close(1011, 'mock drop')
             return
           }
-          const manual = conn.config?.turn_detection === null
+          if (stats.rejectNext) {
+            stats.rejectNext = false
+            send({
+              type: 'error',
+              error: { type: 'invalid_request_error', code: 'mock_reject', message: '模拟的拒绝' }
+            })
+            ws.close(1011, 'mock reject')
+            return
+          }
+          const manual = turnDetection() === null
           if (rms > 0.01) {
             seg ??= startSegment()
             seg.ms += ms
             silentMs = 0
           } else if (seg) {
             silentMs += ms
-            if (!manual && silentMs >= (conn.config?.turn_detection?.silence_duration_ms ?? 1000))
-              endSegment()
+            if (!manual && silentMs >= (turnDetection()?.silence_duration_ms ?? 1000)) endSegment()
           }
           timer ??= setInterval(progress, 250)
           break

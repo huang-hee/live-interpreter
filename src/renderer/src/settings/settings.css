@@ -249,6 +249,15 @@
   outline-offset: -2px;
 }
 
+/* 当前模型不支持的选项 */
+.segmented label:has(input:disabled) {
+  cursor: default;
+}
+
+.segmented input:disabled:not(:checked) + span {
+  opacity: 0.4;
+}
+
 /* 原生复选框藏在这里面，定位要以它为参照，不然点击时浏览器会滚动整页去找它 */
 .switch {
   position: relative;

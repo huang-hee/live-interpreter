@@ -1,6 +1,7 @@
 import { app, safeStorage } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
+import { DEFAULT_LISTEN_MODEL, DEFAULT_SPEAK_MODEL, guessModel } from '../shared/models'
 import {
   SYSTEM_AUDIO_SOURCE,
   type AppSettings,
@@ -14,18 +15,26 @@ const DEFAULT_SETTINGS: AppSettings = {
   apiKey: '',
   workspaceId: '',
   region: 'cn-beijing',
-  model: 'qwen3.5-livetranslate-flash-realtime',
   myLanguage: 'zh',
   peerLanguage: 'en',
   pauseListenWhileSpeaking: true,
   theme: 'system',
   listen: {
+    model: DEFAULT_LISTEN_MODEL,
     source: SYSTEM_AUDIO_SOURCE,
     readAloud: false,
     outputDeviceId: '',
-    glossary: ['# 一行一条：对方语言的词 = 想看到的中文', '# PR = PR', '# deploy = 上线'].join('\n')
+    glossary: ['# 一行一条：对方语言的词 = 想看到的中文', '# PR = PR', '# deploy = 上线'].join(
+      '\n'
+    ),
+    // 和服务端默认值一致
+    silenceMs: 1000,
+    vadThreshold: 0.2,
+    speakers: true,
+    showPending: false
   },
   speak: {
+    model: DEFAULT_SPEAK_MODEL,
     inputDeviceId: '',
     outputDeviceId: '',
     monitor: false,
@@ -64,15 +73,20 @@ const SAVE_DELAY_MS = 400
 type StoredKey = { encryptedApiKey: string } | { apiKey: string }
 
 type StoredSettings = Omit<AppSettings, 'apiKey'> &
-  Partial<{ encryptedApiKey: string; apiKey: string }>
+  Partial<{ encryptedApiKey: string; apiKey: string }> & {
+    /** 旧版本听和说共用一个模型 */
+    model?: string
+  }
 
 /** 旧版本用布尔值 voiceClone 表示「边听边复刻」 */
 type LegacySpeak = Partial<SpeakSettings> & { voiceClone?: boolean }
 
-function migrateSpeak(stored: LegacySpeak | undefined): SpeakSettings {
+/** 旧版本共用的模型留给「说」：复刻音色绑定在这个模型上；「听」用新的默认模型 */
+function migrateSpeak(stored: LegacySpeak | undefined, legacyModel?: string): SpeakSettings {
   const { voiceClone, ...rest } = stored ?? {}
   return {
     ...DEFAULT_SETTINGS.speak,
+    ...(legacyModel ? { model: guessModel(legacyModel) } : {}),
     ...(voiceClone ? { voiceMode: 'live' as const } : {}),
     ...rest
   }
@@ -151,13 +165,13 @@ export class SettingsStore {
     if (!existsSync(this.file)) return structuredClone(DEFAULT_SETTINGS)
     try {
       const stored = JSON.parse(readFileSync(this.file, 'utf-8')) as StoredSettings
-      const { encryptedApiKey, apiKey, ...rest } = stored
+      const { encryptedApiKey, apiKey, model, ...rest } = stored
       this.storedKey = encryptedApiKey ? { encryptedApiKey } : { apiKey: apiKey ?? '' }
       return {
         ...DEFAULT_SETTINGS,
         ...rest,
         listen: { ...DEFAULT_SETTINGS.listen, ...rest.listen },
-        speak: migrateSpeak(rest.speak),
+        speak: migrateSpeak(rest.speak, model),
         overlay: migrateOverlay(rest.overlay),
         records: { ...DEFAULT_SETTINGS.records, ...rest.records },
         apiKey: encryptedApiKey ? this.decrypt(encryptedApiKey) : (apiKey ?? '')

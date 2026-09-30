@@ -1,5 +1,6 @@
 import WebSocket from 'ws'
 import { findLanguage } from '../shared/languages'
+import { featuresOf, type ModelFeatures, type ModelProtocol } from '../shared/models'
 import {
   MUTED_OUTPUT,
   type AppSettings,
@@ -9,7 +10,7 @@ import {
   type TranslatorEvent
 } from '../shared/types'
 
-// 协议见百炼文档「实时音视频翻译」客户端事件 / 服务端事件（qwen3.5-livetranslate-flash-realtime）
+// 协议见百炼文档「实时音视频翻译」客户端事件 / 服务端事件；3.5 和 3.8 两套协议的区别见 shared/models.ts
 
 const LEGACY_HOSTS: Record<Region, string> = {
   'cn-beijing': 'dashscope.aliyuncs.com',
@@ -17,6 +18,13 @@ const LEGACY_HOSTS: Record<Region, string> = {
 }
 
 const ASR_MODEL = 'qwen3-asr-flash-realtime'
+/**
+ * Qwen3.8 文档写的默认音色是 Tina，但不传 voice 时服务端实际用的是它自己不支持的 Chelsie，
+ * 一开口就报 Voice 'Chelsie' is not supported，只出文字也一样，所以总是显式传
+ */
+const QWEN38_VOICE = 'Tina'
+/** 服务端报错后这么短时间内断开，说明是它拒绝了这次会话，重连也一样会被拒 */
+const REJECT_WINDOW_MS = 3000
 const FINISH_TIMEOUT_MS = 3000
 const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000]
 /** 译文消息项 → 原文消息项的映射只留最近这么多条 */
@@ -37,14 +45,14 @@ interface ServerEvent {
 }
 
 /** override 是开发调试用的替换地址（不含 model 参数） */
-export function buildEndpoint(settings: AppSettings, override?: string): string {
-  const model = `model=${encodeURIComponent(settings.model)}`
-  if (override) return `${override}?${model}`
+export function buildEndpoint(settings: AppSettings, model: string, override?: string): string {
+  const query = `model=${encodeURIComponent(model)}`
+  if (override) return `${override}?${query}`
   const workspaceId = settings.workspaceId.trim()
   const host = workspaceId
     ? `${workspaceId}.${settings.region}.maas.aliyuncs.com`
     : LEGACY_HOSTS[settings.region]
-  return `wss://${host}/api-ws/v1/realtime?${model}`
+  return `wss://${host}/api-ws/v1/realtime?${query}`
 }
 
 /** 术语表一行一条「原词 = 译法」，# 开头是注释 */
@@ -62,12 +70,16 @@ export function parseGlossary(text: string): Record<string, string> {
   return phrases
 }
 
-function buildTranslation(language: string, glossary: string): Record<string, unknown> {
-  const phrases = parseGlossary(glossary)
+function buildTranslation(
+  language: string,
+  glossary: string,
+  features: ModelFeatures
+): Record<string, unknown> {
+  const phrases = features.glossary ? parseGlossary(glossary) : {}
   return {
     language,
     // 源语种和目标语种相同时不重复输出，比如收听时对方说的就是中文；服务端只对 zh、en 生效
-    ...(language === 'zh' || language === 'en'
+    ...(features.sameLanguageSkip && (language === 'zh' || language === 'en')
       ? { same_language_skip_options: { skip_text: true, skip_audio: true } }
       : {}),
     ...(Object.keys(phrases).length > 0 ? { corpus: { phrases } } : {})
@@ -75,20 +87,21 @@ function buildTranslation(language: string, glossary: string): Record<string, un
 }
 
 /**
- * 译音音色：
- * fixed 用提前复刻好的音色 ID，第一句就是本人声音；复刻时的模型必须和会话模型一致，否则退回 live。
- * live 由服务端边听边复刻，复刻完成前先用默认音色过渡。
+ * 译音音色，返回空对象表示用预设音色：
+ * fixed 用提前复刻好的音色 ID，第一句就是本人声音；模型不支持固定音色、或复刻时的模型和会话模型不一致时退回 live。
+ * live 由服务端边听边复刻，复刻完成前先用默认音色过渡；音色要传 default，传具体的多语种音色会被拒绝。
  */
-function voiceConfig({ model, speak }: AppSettings): Record<string, unknown> {
-  const fixed = speak.voiceMode === 'fixed' && speak.clonedVoice?.model === model
-  if (fixed && speak.clonedVoice) {
+function voiceConfig({ speak }: AppSettings): Record<string, unknown> {
+  const features = featuresOf(speak.model)
+  const { clonedVoice } = speak
+  if (speak.voiceMode === 'fixed' && features.fixedVoice && clonedVoice?.model === speak.model.id) {
     return {
-      voice: speak.clonedVoice.id,
+      voice: clonedVoice.id,
       enable_voice_clone: true,
       voice_clone_options: { frequency: 'never' }
     }
   }
-  if (speak.voiceMode === 'off') return {}
+  if (speak.voiceMode === 'off' || !features.liveClone) return {}
   return { voice: 'default', enable_voice_clone: true, voice_clone_options: { frequency: 'once' } }
 }
 
@@ -96,26 +109,61 @@ export function buildSessionConfig(
   direction: Direction,
   settings: AppSettings
 ): Record<string, unknown> {
-  const audioFormat = { input_audio_format: 'pcm', sample_rate: 16000, output_audio_format: 'pcm' }
+  const { myLanguage, peerLanguage, listen, speak } = settings
+  const listening = direction === 'listen'
+  const model = settings[direction].model
+  const target = listening ? myLanguage : peerLanguage
+  const translation = buildTranslation(
+    target,
+    listening ? listen.glossary : speak.glossary,
+    featuresOf(model)
+  )
+  // 收听要朗读才出声；说选了「不出声」就只要文字，省掉最贵的音频输出
+  const speech =
+    (findLanguage(target)?.speech ?? false) &&
+    (listening ? listen.readAloud : speak.outputDeviceId !== MUTED_OUTPUT)
+  const modalities = speech ? ['text', 'audio'] : ['text']
 
-  if (direction === 'listen') {
-    const { myLanguage, listen } = settings
-    const speech = listen.readAloud && (findLanguage(myLanguage)?.speech ?? false)
+  if (model.protocol === 'qwen3.8') {
+    // 听：按说话人断句时灵敏度固定为 0.5，只调停顿；说：按住说话时关掉服务端断句，灵敏度用服务端默认
+    const turnDetection = listening
+      ? listen.speakers
+        ? { type: 'speaker_detection', silence_duration_ms: listen.silenceMs }
+        : {
+            type: 'server_vad',
+            threshold: listen.vadThreshold,
+            silence_duration_ms: listen.silenceMs
+          }
+      : speak.mode === 'hold'
+        ? null
+        : { type: 'server_vad', silence_duration_ms: speak.silenceMs }
+    // 原文识别始终开启；音频用默认格式：输入 16kHz PCM，输出 24kHz PCM
     return {
-      modalities: speech ? ['text', 'audio'] : ['text'],
-      ...audioFormat,
-      // 不指定源语种，由模型自动识别
-      input_audio_transcription: { model: ASR_MODEL },
-      translation: buildTranslation(myLanguage, listen.glossary)
+      output_modalities: modalities,
+      voice: QWEN38_VOICE,
+      ...(speech && !listening ? voiceConfig(settings) : {}),
+      audio: { input: { turn_detection: turnDetection } },
+      translation
     }
   }
 
-  const { myLanguage, peerLanguage, speak } = settings
-  // 选了「不出声」就只要文字，省掉最贵的音频输出
-  const speech =
-    (findLanguage(peerLanguage)?.speech ?? false) && speak.outputDeviceId !== MUTED_OUTPUT
+  const audioFormat = { input_audio_format: 'pcm', sample_rate: 16000, output_audio_format: 'pcm' }
+  if (listening) {
+    return {
+      modalities,
+      ...audioFormat,
+      // 不指定源语种，由模型自动识别
+      input_audio_transcription: { model: ASR_MODEL },
+      turn_detection: {
+        type: 'server_vad',
+        threshold: listen.vadThreshold,
+        silence_duration_ms: listen.silenceMs
+      },
+      translation
+    }
+  }
   return {
-    modalities: speech ? ['text', 'audio'] : ['text'],
+    modalities,
     ...(speech ? voiceConfig(settings) : {}),
     ...audioFormat,
     input_audio_transcription: { model: ASR_MODEL, language: myLanguage },
@@ -123,7 +171,7 @@ export function buildSessionConfig(
       speak.mode === 'hold'
         ? null
         : { type: 'server_vad', threshold: 0.2, silence_duration_ms: speak.silenceMs },
-    translation: buildTranslation(peerLanguage, speak.glossary)
+    translation
   }
 }
 
@@ -139,13 +187,29 @@ function describeConnectError(error: Error): string {
 
 const CHECK_TIMEOUT_MS = 8000
 
-/** 只握手不翻译：连上并收到 session.created 就算 Key、地域、业务空间都对 */
-export function checkConnection(
+/** 听和说用到的模型逐个握手，都连得上才算通过 */
+export async function checkConnection(
   settings: AppSettings,
   endpointOverride?: string
 ): Promise<{ ok: boolean; message: string }> {
+  const models = [...new Set([settings.listen.model.id, settings.speak.model.id])]
+  for (const model of models) {
+    const result = await checkModel(settings, model, endpointOverride)
+    if (!result.ok) {
+      return models.length > 1 ? { ok: false, message: `${model}：${result.message}` } : result
+    }
+  }
+  return { ok: true, message: '' }
+}
+
+/** 只握手不翻译：连上并收到 session.created 就算 Key、地域、业务空间、模型权限都对 */
+function checkModel(
+  settings: AppSettings,
+  model: string,
+  endpointOverride?: string
+): Promise<{ ok: boolean; message: string }> {
   return new Promise((resolve) => {
-    const socket = new WebSocket(buildEndpoint(settings, endpointOverride), {
+    const socket = new WebSocket(buildEndpoint(settings, model, endpointOverride), {
       headers: { Authorization: `Bearer ${settings.apiKey}` }
     })
     const finish = (ok: boolean, message: string): void => {
@@ -176,6 +240,12 @@ export class TranslatorChannel {
    * 译文项创建时的 previous_item_id 就是原文项 ID，据此把两者归到同一段落
    */
   private paragraphOf = new Map<string, string>()
+  /** 这次会话按哪套协议解析事件 */
+  private protocol: ModelProtocol = 'qwen3.5'
+  /** Qwen3.8 推的是增量，按「原文/译文 + 消息项」拼成全文 */
+  private drafts = new Map<string, string>()
+  /** 最近一次服务端报错，用来区分「被拒绝」和「网络断了」 */
+  private lastError: { message: string; at: number } | null = null
 
   constructor(
     private readonly direction: Direction,
@@ -255,12 +325,16 @@ export class TranslatorChannel {
       return Promise.reject(new Error('还没填 API Key，打开「设置」填入百炼的 API Key'))
     }
 
+    const model = settings[this.direction].model
     return new Promise((resolve, reject) => {
-      const socket = new WebSocket(buildEndpoint(settings, this.endpointOverride), {
+      const socket = new WebSocket(buildEndpoint(settings, model.id, this.endpointOverride), {
         headers: { Authorization: `Bearer ${settings.apiKey}` }
       })
       let ready = false
+      this.protocol = model.protocol
       this.paragraphOf.clear()
+      this.drafts.clear()
+      this.lastError = null
 
       const fail = (error: Error): void => {
         if (ready) return
@@ -310,6 +384,12 @@ export class TranslatorChannel {
   private handleUnexpectedClose(code: number, reason: string, attempt = 0): void {
     this.socket = null
     if (!this.active) return
+    // 报错后紧跟着断开：参数、音色之类被拒，重连只会无限循环，直接停下
+    if (this.lastError && Date.now() - this.lastError.at < REJECT_WINDOW_MS) {
+      this.active = false
+      this.emitStatus('error', `服务端拒绝了这次会话：${this.lastError.message}`)
+      return
+    }
     const delay = RECONNECT_DELAYS_MS[attempt]
     if (delay === undefined) {
       this.active = false
@@ -364,21 +444,53 @@ export class TranslatorChannel {
           this.link(event.item.id, event.previous_item_id)
         }
         break
+      // Qwen3.5：text 是已确认的全文，stash 是待确认、可能被改写的尾巴
       case 'conversation.item.input_audio_transcription.text':
         this.emitText('source', itemId, event.text, event.stash, false)
-        break
-      case 'conversation.item.input_audio_transcription.completed':
-        this.emitText('source', itemId, event.transcript, '', true)
         break
       case 'response.text.text':
       case 'response.audio_transcript.text':
         this.emitText('translation', itemId, event.text, event.stash, false)
         break
+      // Qwen3.8：增量只追加不覆盖，自己拼成全文
+      case 'conversation.item.input_audio_transcription.delta':
+        if (this.protocol === 'qwen3.8') {
+          this.emitText('source', itemId, this.append('source', itemId, event.delta), '', false)
+        }
+        break
+      case 'response.text.delta':
+      case 'response.audio_transcript.delta':
+        if (this.protocol === 'qwen3.8') {
+          this.emitText(
+            'translation',
+            itemId,
+            this.append('translation', itemId, event.delta),
+            '',
+            false
+          )
+        }
+        break
+      // 两套协议共用的定稿事件
+      case 'conversation.item.input_audio_transcription.completed':
+        this.emitText('source', itemId, this.settle('source', itemId, event.transcript), '', true)
+        break
       case 'response.text.done':
-        this.emitText('translation', itemId, event.text, '', true)
+        this.emitText(
+          'translation',
+          itemId,
+          this.settle('translation', itemId, event.text),
+          '',
+          true
+        )
         break
       case 'response.audio_transcript.done':
-        this.emitText('translation', itemId, event.transcript, '', true)
+        this.emitText(
+          'translation',
+          itemId,
+          this.settle('translation', itemId, event.transcript),
+          '',
+          true
+        )
         break
       case 'response.audio.delta':
         if (event.delta) {
@@ -395,10 +507,28 @@ export class TranslatorChannel {
       case 'input_audio_buffer.speech_stopped':
         this.emit({ direction, type: 'speech', speaking: false })
         break
-      case 'error':
-        this.emitStatus('live', this.errorMessage(event))
+      case 'error': {
+        const message = this.errorMessage(event)
+        this.lastError = { message, at: Date.now() }
+        this.emitStatus('live', message)
         break
+      }
     }
+  }
+
+  private append(type: 'source' | 'translation', itemId: string, delta = ''): string {
+    const key = `${type}:${itemId}`
+    const text = (this.drafts.get(key) ?? '') + delta
+    this.drafts.set(key, text)
+    return text
+  }
+
+  /** 定稿以服务端给的全文为准；没给就用拼好的增量 */
+  private settle(type: 'source' | 'translation', itemId: string, final?: string): string {
+    const key = `${type}:${itemId}`
+    const text = final ?? this.drafts.get(key) ?? ''
+    this.drafts.delete(key)
+    return text
   }
 
   private link(translationId: string, sourceId: string): void {
@@ -422,7 +552,8 @@ export class TranslatorChannel {
       direction: this.direction,
       type,
       paragraphId,
-      text: text ?? '',
+      // 定稿有时带着多余的尾部空格，拼段落时会变成双空格
+      text: final ? (text ?? '').trimEnd() : (text ?? ''),
       stash: stash ?? '',
       final
     })

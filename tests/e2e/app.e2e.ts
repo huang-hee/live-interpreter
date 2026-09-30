@@ -277,12 +277,27 @@ console.log('mock on', mock.port)
     '看板：点收听开始',
     await waitFor(async () => (await statusOf(overlay, 'listen')) === 'live')
   )
+  const listenConn = lastConn(mock)
   await overlay.getByRole('button', { name: /^说话/ }).click()
   check(
     '看板：点说话开始',
     await waitFor(async () => (await statusOf(overlay, 'speak')) === 'live')
   )
   const speakConn = lastConn(mock)
+  check(
+    '模型：旧配置迁移后，听用 Qwen3.8、说保留原来的 Qwen3.5',
+    /model=qwen3\.8-livetranslate-flash-realtime$/.test(listenConn.url ?? '') &&
+      /model=qwen3\.5-livetranslate-flash-realtime$/.test(speakConn.url ?? ''),
+    `${listenConn.url} / ${speakConn.url}`
+  )
+  check(
+    '模型：听按 3.8 协议配置（按说话人断句，不发 3.5 的字段）',
+    listenConn.config?.output_modalities?.join() === 'text,audio' &&
+      listenConn.config?.audio?.input?.turn_detection?.type === 'speaker_detection' &&
+      listenConn.config?.modalities === undefined &&
+      listenConn.config?.translation?.corpus?.phrases?.['staging'] === '预发',
+    JSON.stringify(listenConn.config)
+  )
   const onair = await waitFor(
     async () => (await overlay.locator('.caption-area').getAttribute('data-onair')) === 'true',
     10000
@@ -368,6 +383,14 @@ console.log('mock on', mock.port)
           .catch(() => '')
       )
     )
+  )
+  // 说过好几句之后，字幕条上也只有最新一句
+  await waitFor(async () => speakConn.segments >= 2, 12000)
+  const stripText = await overlay.locator('.speak-strip').innerText()
+  check(
+    '看板：「说」的字幕条只显示最新一句，不往前拼',
+    (stripText.match(/segment \d+/g) ?? []).length === 1,
+    stripText.replace(/\s+/g, ' ').slice(0, 60)
   )
   await overlay.screenshot({ path: join(shots, '05b-overlay-speak-strip.png') })
   await overlay.getByRole('button', { name: '说的字幕' }).click()
@@ -523,7 +546,16 @@ console.log('mock on', mock.port)
   )
   check('性能：3 秒内界面收到的批次不超过 70（50ms 合并）', batches <= 70, `${batches} 批`)
 
-  // 服务端错误、断线重连
+  // 断线重连、服务端错误（报错后紧跟着断开会被当成拒绝，所以先测断线）
+  const beforeDrop = mock.stats.connections.length
+  mock.stats.closeNext = true
+  check(
+    '断线：自动重连回来',
+    await waitFor(async () => {
+      const [listen, speak] = [await statusOf(overlay, 'listen'), await statusOf(overlay, 'speak')]
+      return listen === 'live' && speak === 'live' && mock.stats.connections.length > beforeDrop
+    }, 10000)
+  )
   mock.stats.errorNext = true
   check(
     '错误事件：状态里带上服务端给的原因',
@@ -537,15 +569,6 @@ console.log('mock on', mock.port)
       )
     )
   )
-  mock.stats.closeNext = true
-  check(
-    '断线：自动重连回来',
-    await waitFor(async () => {
-      const [listen, speak] = [await statusOf(overlay, 'listen'), await statusOf(overlay, 'speak')]
-      return listen === 'live' && speak === 'live' && mock.stats.connections.length > 3
-    }, 10000)
-  )
-
   await showToolbar(overlay)
   await overlay.getByRole('button', { name: /停止收听/ }).click()
   await overlay.getByRole('button', { name: /停止说话/ }).click()
@@ -714,6 +737,106 @@ console.log('mock on', mock.port)
 }
 
 // ---------- 退出：正常退出先结束会话，强杀进程连接也会断 ----------
+// ---------- 换模型、字幕显示方式 ----------
+{
+  const profile = makeProfile('models')
+  const { app } = await launch(profile, mock)
+  const overlay = await pageOf(app, 'overlay')
+  await overlay.waitForSelector('.caption-area')
+  await showToolbar(overlay)
+  await overlay.getByRole('button', { name: /^收听/ }).click()
+  await waitFor(async () => (await statusOf(overlay, 'listen')) === 'live')
+  // 只取字幕正文；没字时的提示语里也有「…」
+  // 服务端报错后立刻断开：当成被拒绝，停下来显示原因，不无限重连
+  const connectionsBefore = mock.stats.connections.length
+  mock.stats.rejectNext = true
+  const stopped = await waitFor(async () => (await statusOf(overlay, 'listen')) === 'error')
+  await overlay.waitForTimeout(2500)
+  const message = await overlay.evaluate(() =>
+    window.api.getState().then((s) => s.channels.listen.message)
+  )
+  check(
+    '被拒绝：报错后紧跟着断开就停下，不再重连',
+    stopped &&
+      mock.stats.connections.length === connectionsBefore &&
+      /服务端拒绝了这次会话：模拟的拒绝/.test(message),
+    message
+  )
+  await showToolbar(overlay)
+  await overlay.getByRole('button', { name: /^收听/ }).click()
+  await waitFor(async () => (await statusOf(overlay, 'listen')) === 'live')
+
+  const caption = (): Promise<string> =>
+    overlay.evaluate(
+      () =>
+        document.querySelector('.caption[data-kind="translation"] .caption-text')?.textContent ?? ''
+    )
+
+  await overlay.getByRole('button', { name: '设置' }).click()
+  const settings = await pageOf(app, 'settings')
+  await settings.getByRole('button', { name: '翻译' }).click()
+  const before = mock.stats.connections.length
+  await settings.getByLabel('模型').first().selectOption({ label: 'Qwen3.5 同传' })
+  const switched = await waitFor(
+    async () =>
+      mock.stats.connections.length > before &&
+      /qwen3\.5/.test(lastConn(mock).url ?? '') &&
+      (await statusOf(overlay, 'listen')) === 'live'
+  )
+  const conn = lastConn(mock)
+  check(
+    '模型：运行中把听换成 Qwen3.5，自动用新模型重连，断句参数按设置发',
+    switched &&
+      JSON.stringify(conn.config?.turn_detection) ===
+        JSON.stringify({ type: 'server_vad', threshold: 0.2, silence_duration_ms: 1000 }),
+    JSON.stringify(conn.config?.turn_detection)
+  )
+  await settings.screenshot({ path: join(shots, '08-settings-models.png') })
+
+  // 稳定优先：模拟服务推的尾巴是「…」，默认不上字幕
+  const samples: string[] = []
+  for (let i = 0; i < 12; i++) {
+    samples.push(await caption())
+    await overlay.waitForTimeout(250)
+  }
+  check(
+    '字幕：默认只显示确认过的译文，不显示会被改写的尾巴',
+    samples.some((text) => /segment/.test(text)) && samples.every((text) => !text.includes('…')),
+    samples.at(-1)?.slice(-40)
+  )
+  await settings.getByText('字幕里显示还没确认的译文').click()
+  check(
+    '字幕：打开「显示还没确认的译文」后尾巴也上字幕',
+    await waitFor(async () => (await caption()).includes('…'))
+  )
+
+  // 说换成 3.8：按住说话能用（按 3.8 的写法关掉服务端断句），固定音色不支持
+  await settings.getByLabel('模型').nth(1).selectOption({ label: 'Qwen3.8 同传' })
+  await settings.getByText('按住说话', { exact: true }).click()
+  await showToolbar(overlay)
+  await overlay.getByRole('button', { name: /^说话/ }).click()
+  const holdStarted = await waitFor(
+    async () =>
+      (await statusOf(overlay, 'speak')) === 'live' && /qwen3\.8/.test(lastConn(mock).url ?? '')
+  )
+  const holdConn = lastConn(mock)
+  check(
+    '模型：说用 Qwen3.8 按住说话，关掉的是 audio.input 下的服务端断句',
+    holdStarted &&
+      holdConn.config?.audio?.input?.turn_detection === null &&
+      holdConn.config?.turn_detection === undefined,
+    JSON.stringify(holdConn.config?.audio)
+  )
+  await settings.getByRole('button', { name: '音色' }).click()
+  check(
+    '模型：说换成 Qwen3.8 后，固定音色不可选，边说边复刻可选',
+    (await settings.getByRole('radio', { name: '固定音色' }).isDisabled()) &&
+      !(await settings.getByRole('radio', { name: '边说边复刻' }).isDisabled()) &&
+      (await settings.getByText(/不支持固定音色/).isVisible())
+  )
+  await app.close()
+}
+
 {
   const profile = makeProfile('quit')
   const { app } = await launch(profile, mock)

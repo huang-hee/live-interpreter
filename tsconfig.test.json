@@ -4,11 +4,23 @@
     "tests/**/*.ts",
     "src/main/**/*",
     "src/shared/**/*",
-    "src/preload/index.d.ts"
+    "src/preload/index.d.ts",
+    "src/renderer/src/overlay/caption.ts"
   ],
   "compilerOptions": {
     "noEmit": true,
-    "lib": ["ESNext", "DOM"],
-    "types": ["electron-vite/node"]
+    "lib": [
+      "ESNext",
+      "DOM"
+    ],
+    "types": [
+      "electron-vite/node"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": [
+        "src/shared/*"
+      ]
+    }
   }
 }

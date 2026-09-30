@@ -46,7 +46,7 @@ export function SelectField({
 interface SegmentedProps<T extends string> {
   label: string
   value: T
-  options: { value: T; label: string }[]
+  options: { value: T; label: string; disabled?: boolean }[]
   disabled?: boolean
   onChange: (value: T) => void
 }
@@ -68,7 +68,7 @@ export function Segmented<T extends string>({
             name={name}
             value={option.value}
             checked={value === option.value}
-            disabled={disabled}
+            disabled={disabled || option.disabled}
             onChange={() => onChange(option.value)}
           />
           <span>{option.label}</span>

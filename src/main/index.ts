@@ -11,6 +11,7 @@ import {
   systemPreferences
 } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
+import { featuresOf } from '../shared/models'
 import {
   HOLD_TO_TALK_SHORTCUT,
   type ConnectionDraft,
@@ -24,7 +25,7 @@ import {
 import { EventBatcher } from './event-batcher'
 import { SettingsStore } from './settings'
 import { StateStore } from './state'
-import { buildSessionConfig, checkConnection, TranslatorChannel } from './translator'
+import { buildEndpoint, buildSessionConfig, checkConnection, TranslatorChannel } from './translator'
 import { createVoice, deleteVoice } from './voice'
 import { WindowManager } from './windows'
 
@@ -156,8 +157,14 @@ app.whenReady().then(() => {
    * 断开当前连接用新配置重连；采集不停，重连期间的几百毫秒音频会丢掉。
    */
   const saveAndBroadcast = (patch: SettingsPatch): ReturnType<SettingsStore['getPublic']> => {
-    const configOf = (direction: Direction): string =>
-      JSON.stringify(buildSessionConfig(direction, settings.get()))
+    // 地址（模型、地域、业务空间）或会话配置变了都要重连
+    const configOf = (direction: Direction): string => {
+      const current = settings.get()
+      return JSON.stringify([
+        buildEndpoint(current, current[direction].model.id),
+        buildSessionConfig(direction, current)
+      ])
+    }
     const before = { listen: configOf('listen'), speak: configOf('speak') }
     const result = settings.update(patch)
     if (patch.theme) nativeTheme.themeSource = result.theme
@@ -216,6 +223,9 @@ app.whenReady().then(() => {
   ipcMain.handle('voice:create', async (_, wav: ArrayBuffer): Promise<Result> => {
     const current = settings.get()
     if (!current.apiKey) return { ok: false, message: '先填 API Key' }
+    if (!featuresOf(current.speak.model).fixedVoice) {
+      return { ok: false, message: '「说」用的模型不支持固定音色，先在「翻译」里换成 Qwen3.5' }
+    }
     try {
       const voice = await createVoice(current, Buffer.from(wav), endpointOverride)
       const previous = current.speak.clonedVoice

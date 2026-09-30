@@ -1,3 +1,4 @@
+import type { ModelChoice } from './models'
 import type { Paragraph } from './paragraphs'
 
 /** listen：对方 → 我；speak：我 → 对方 */
@@ -26,11 +27,20 @@ export const SYSTEM_AUDIO_SOURCE = 'system'
 export const MUTED_OUTPUT = 'none'
 
 export interface ListenSettings {
+  model: ModelChoice
   source: string
   /** 除了字幕，是否把译文念出来 */
   readAloud: boolean
   outputDeviceId: string
   glossary: string
+  /** 停顿多久算一句话说完（Qwen3.5 协议） */
+  silenceMs: number
+  /** 断句灵敏度，-1~1，越低越容易把背景音当成人声（Qwen3.5 协议） */
+  vadThreshold: number
+  /** 按说话人断句（Qwen3.8 协议） */
+  speakers: boolean
+  /** 字幕里也显示还没确认、可能被改写的译文：出字更快，但会改字 */
+  showPending: boolean
 }
 
 export interface ClonedVoice {
@@ -41,6 +51,7 @@ export interface ClonedVoice {
 }
 
 export interface SpeakSettings {
+  model: ModelChoice
   inputDeviceId: string
   /** 译音播到哪：空串是系统默认输出，MUTED_OUTPUT 是不出声，其余是设备 deviceId */
   outputDeviceId: string
@@ -87,7 +98,6 @@ export interface AppSettings {
   apiKey: string
   workspaceId: string
   region: Region
-  model: string
   myLanguage: string
   peerLanguage: string
   /** 说话或播报译文时暂停收听，避免系统声音把自己的译音再录回去 */
