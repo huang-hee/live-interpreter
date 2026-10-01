@@ -59,10 +59,6 @@ interface Launched {
 
 async function launch(profile: string, mock: MockServer): Promise<Launched> {
   const app = await electron.launch({
-    executablePath: join(
-      project,
-      'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'
-    ),
     args: [
       '--use-mock-keychain',
       '--use-fake-device-for-media-stream',
