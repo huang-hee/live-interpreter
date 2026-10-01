@@ -2,6 +2,7 @@
 // --use-mock-keychain 让加密 Key 走模拟钥匙串，不会弹系统授权框
 // 运行：npm run test:e2e（会先构建）。截图和临时配置写到 tests/.output
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { createRequire } from 'module'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright-core'
@@ -9,6 +10,12 @@ import { startMock, MOCK_KEY, type MockConnection, type MockServer } from './moc
 import { writeTestSpeech } from './test-speech'
 
 const project = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+/**
+ * electron 包在 Node 里导出的是当前平台可执行文件的路径。一定要显式传给 Playwright：
+ * 不传时它改用自带的 loader 启动，loader 追加的 --disable-features 会盖掉下面关音频沙箱的那一条，
+ * 假麦克风读不到音频文件，只能录到静音（Linux 上 Playwright 另加了 --no-sandbox，看不出来）
+ */
+const electronBinary = createRequire(import.meta.url)('electron') as string
 const out = join(project, 'tests/.output')
 const shots = join(out, 'shots')
 mkdirSync(shots, { recursive: true })
@@ -59,6 +66,7 @@ interface Launched {
 
 async function launch(profile: string, mock: MockServer): Promise<Launched> {
   const app = await electron.launch({
+    executablePath: electronBinary,
     args: [
       '--use-mock-keychain',
       '--use-fake-device-for-media-stream',
